@@ -199,10 +199,25 @@ export const AIAssistantView: React.FC = () => {
       );
       socketRef.current = socket;
 
+      // There are two separate phases: the TCP/WebSocket handshake and Gemini's
+      // setup acknowledgement. A socket can be OPEN while Gemini has rejected or
+      // is still processing the setup payload, so the old CONNECTING-only timeout
+      // could leave the UI spinning forever.
+      let setupCompleteReceived = false;
+      const setupTimeout = window.setTimeout(() => {
+        if (!setupCompleteReceived) {
+          try { socket.close(1000, 'Gemini setup timeout'); } catch {}
+          setError('Gemini Live setup timed out. The voice session was not accepted.');
+          setStatus('Setup timed out');
+          setConnecting(false);
+          setConnected(false);
+        }
+      }, 12000);
+
       const socketTimeout = window.setTimeout(() => {
         if (socket.readyState === WebSocket.CONNECTING) {
           socket.close();
-          setError('Gemini Live connection timed out. Please try again.');
+          setError('Gemini Live WebSocket connection timed out. Please try again.');
           setStatus('Connection timed out');
           setConnecting(false);
           setConnected(false);
@@ -211,6 +226,11 @@ export const AIAssistantView: React.FC = () => {
 
       socket.onopen = () => {
         window.clearTimeout(socketTimeout);
+        setStatus('Authorised — starting Gemini Live...');
+
+        // Keep the first setup payload deliberately minimal and aligned with the
+        // raw Live API wire schema. Advanced session features are added only after
+        // the baseline voice connection is proven.
         socket.send(JSON.stringify({
           setup: {
             model: `models/${MODEL}`,
@@ -229,21 +249,40 @@ export const AIAssistantView: React.FC = () => {
             },
             inputAudioTranscription: {},
             outputAudioTranscription: {},
-            sessionResumption: {},
-            contextWindowCompression: { slidingWindow: {} },
           },
         }));
-        setStatus('Connected — tap the microphone and talk');
       };
 
       socket.onmessage = async (event) => {
-        const response = JSON.parse(event.data);
+        let response: any;
+        try {
+          response = JSON.parse(event.data);
+        } catch {
+          setError('Gemini Live returned an invalid message.');
+          setStatus('Protocol error');
+          setConnecting(false);
+          return;
+        }
+
+        if (response.error) {
+          window.clearTimeout(setupTimeout);
+          const apiMessage = response.error.message || response.error.status || 'Gemini Live rejected the session setup.';
+          setError(`Gemini Live error: ${apiMessage}`);
+          setStatus('Gemini setup rejected');
+          setConnecting(false);
+          setConnected(false);
+          try { socket.close(1000, 'Gemini setup rejected'); } catch {}
+          return;
+        }
+
         const content = response.serverContent;
 
         if (response.setupComplete) {
+          setupCompleteReceived = true;
+          window.clearTimeout(setupTimeout);
           setConnected(true);
           setConnecting(false);
-          setStatus('Listening');
+          setStatus('Connected — tap the microphone and talk');
         }
 
         if (response.sessionResumptionUpdate?.resumable && response.sessionResumptionUpdate.newHandle) {
@@ -282,12 +321,16 @@ export const AIAssistantView: React.FC = () => {
       };
 
       socket.onerror = () => {
-        setError('Voice connection failed. Please try connecting again.');
+        window.clearTimeout(setupTimeout);
+        setError('Voice connection failed. Gemini Live could not establish the session.');
         setStatus('Connection error');
+        setConnecting(false);
+        setConnected(false);
       };
 
       socket.onclose = (event) => {
         window.clearTimeout(socketTimeout);
+        window.clearTimeout(setupTimeout);
         socketRef.current = null;
         cleanupMicrophone();
         stopPlayback();
