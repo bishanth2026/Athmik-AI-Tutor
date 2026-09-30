@@ -35,6 +35,10 @@ export class KnowledgeBaseService {
   private chunks: DocumentChunk[] = [];
   private isInitialized = false;
   private readonly remote: SupabaseKnowledgeRepository | null;
+  private readonly embeddingCache = new Map<string, { expiresAt: number; value: number[] | null }>();
+  private readonly searchCache = new Map<string, { expiresAt: number; value: Awaited<ReturnType<KnowledgeBaseService['searchKnowledge']>> }>();
+  private readonly embeddingTtlMs = 5 * 60_000;
+  private readonly searchTtlMs = 60_000;
 
   constructor(aiClient: GoogleGenAI) {
     this.ai = aiClient;
@@ -136,6 +140,10 @@ export class KnowledgeBaseService {
    * Embed text using gemini-embedding-001 with fallback protection
    */
   public async generateEmbedding(text: string): Promise<number[] | null> {
+    const key = text.trim().slice(0, 2000);
+    const cached = this.embeddingCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
     try {
       const res = await this.ai.models.embedContent({
         model: 'gemini-embedding-001',
@@ -144,11 +152,14 @@ export class KnowledgeBaseService {
 
       const values = res.embeddings?.[0]?.values;
       if (Array.isArray(values) && values.length > 0) {
+        this.embeddingCache.set(key, { expiresAt: Date.now() + this.embeddingTtlMs, value: values });
         return values;
       }
+      this.embeddingCache.set(key, { expiresAt: Date.now() + this.embeddingTtlMs, value: null });
       return null;
     } catch (err: any) {
       console.warn(`[KnowledgeBase] Embedding generation skipped/failed: ${err?.message?.slice(0, 80)}`);
+      this.embeddingCache.set(key, { expiresAt: Date.now() + this.embeddingTtlMs, value: null });
       return null;
     }
   }
@@ -347,6 +358,19 @@ export class KnowledgeBaseService {
   }> {
     const minScore = params.minScore ?? 0.35;
     const limit = params.limit ?? 5;
+    const cacheKey = JSON.stringify({
+      q: params.query.trim().toLowerCase(),
+      class: params.class,
+      board: params.board,
+      subject_id: params.subject_id,
+      chapter_id: params.chapter_id,
+      chapter_number: params.chapter_number,
+      topic: params.topic,
+      minScore,
+      limit,
+    });
+    const cachedSearch = this.searchCache.get(cacheKey);
+    if (cachedSearch && cachedSearch.expiresAt > Date.now()) return cachedSearch.value;
 
     // 1. Generate query embedding
     const queryEmbedding = await this.generateEmbedding(params.query);
@@ -380,12 +404,14 @@ export class KnowledgeBaseService {
           });
         }
       }
-      return {
+      const value = {
         results,
         queryEmbeddingGenerated: true,
         totalAvailableChunks: await this.remote.countAvailable({ subject_id: params.subject_id, chapter_id: params.chapter_id }),
         sources,
       };
+      this.searchCache.set(cacheKey, { expiresAt: Date.now() + this.searchTtlMs, value });
+      return value;
       } catch (remoteError) {
         console.warn('[KnowledgeBase] Remote vector search failed; falling back to local lexical retrieval:', remoteError);
       }
@@ -500,12 +526,14 @@ export class KnowledgeBaseService {
       }
     }
 
-    return {
+    const value = {
       results: topResults,
       queryEmbeddingGenerated: !!queryEmbedding,
       totalAvailableChunks: candidates.length,
       sources,
     };
+    this.searchCache.set(cacheKey, { expiresAt: Date.now() + this.searchTtlMs, value });
+    return value;
   }
 
   private cosineSimilarity(vecA: number[], vecB: number[]): number {
