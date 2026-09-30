@@ -646,10 +646,17 @@ Respond with a JSON object:
 
     if (isStudentAnswer && parsedData.evaluation && lastAssistantMsg) {
       // Deterministic evaluation check for arithmetic/numeric answers
-      const detEval = studentLearningMemory.evaluateDeterministicAnswer(
-        lastAssistantMsg.content,
-        lastUserMsg.content
+      const isFishTaleMath = (
+        subject?.id === 'sub_maths' ||
+        subjectName.toLowerCase().includes('math') ||
+        (chapter?.chapter_name || '').toLowerCase().includes('fish tale')
       );
+      const detEval = isFishTaleMath
+        ? studentLearningMemory.evaluateDeterministicAnswer(
+            lastAssistantMsg.content,
+            lastUserMsg.content
+          )
+        : { isDeterministic: false };
 
       if (detEval.isDeterministic && detEval.isCorrect !== undefined) {
         isDeterministic = true;
@@ -726,11 +733,13 @@ Respond with a JSON object:
         : '';
       if (status === 'incorrect') {
         const correction = feedback || 'That answer is not correct. Let’s check the steps together.';
-        parsedData.reply = `Good attempt, ${studentName}! ${correction}`;
+        const cleanCorrection = correction.replace(/^good attempt[!,.]?\s*/i, '');
+        parsedData.reply = `Good attempt, ${studentName}! ${cleanCorrection}`;
         parsedData.evaluation.scoreDelta = 0;
       } else if (status === 'partially_correct') {
         const correction = feedback || 'You have part of the idea right. Let’s fix the remaining step together.';
-        parsedData.reply = `Good progress, ${studentName}! ${correction}`;
+        const cleanCorrection = correction.replace(/^good progress[!,.]?\s*/i, '');
+        parsedData.reply = `Good progress, ${studentName}! ${cleanCorrection}`;
         parsedData.evaluation.scoreDelta = Math.min(5, Number(parsedData.evaluation.scoreDelta) || 5);
       } else if (status === 'correct') {
         const confirmation = feedback || 'Your answer is correct!';
