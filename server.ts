@@ -113,35 +113,43 @@ app.post('/api/ai-assistant/token', requireAuth, async (req, res) => {
       });
     }
 
+    // Keep the browser token short-lived, but do not lock the entire Live setup
+    // into the provisioning request. The client sends the fixed model/config after
+    // the WebSocket opens. This avoids token-provisioning failures when Google
+    // changes which Live configuration fields are accepted for a constrained token.
     const now = Date.now();
+    const payload = {
+      uses: 1,
+      expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+      newSessionExpireTime: new Date(now + 5 * 60 * 1000).toISOString(),
+    };
+
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({
-        uses: 1,
-        expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
-        liveConnectConstraints: {
-          model: 'models/gemini-3.8-live',
-          config: {
-            responseModalities: ['AUDIO'],
-            sessionResumption: {},
-            contextWindowCompression: { slidingWindow: {} },
-          },
-        },
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const data = await response.json();
+    const raw = await response.text();
+    let data: any = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch {}
+
     if (!response.ok || !data?.name) {
-      console.error('[AI Assistant] Ephemeral token provisioning failed:', data);
+      const upstreamMessage = typeof data?.error?.message === 'string'
+        ? data.error.message
+        : `HTTP ${response.status}`;
+      console.error('[AI Assistant] Ephemeral token provisioning failed:', {
+        status: response.status,
+        message: upstreamMessage,
+        code: data?.error?.status || data?.error?.code || null,
+      });
       return res.status(502).json({
         success: false,
         errorCode: 'LIVE_TOKEN_FAILED',
-        error: 'Could not start the voice assistant session.',
+        error: `Gemini Live authentication failed (${response.status}). Please try again.`,
       });
     }
 
