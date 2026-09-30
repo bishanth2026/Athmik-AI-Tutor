@@ -259,12 +259,35 @@ export class StudentLearningMemoryService {
     const overallAccuracy = (mastery.correct_answers / mastery.questions_attempted) * 100;
 
     // 3. Difficulty performance
-    const difficultyPerformance = (mastery.difficulty_level / 5) * 100;
+    // Measure how well the student actually performs at the difficulty levels
+    // they have attempted. The current adaptive level itself must never inflate
+    // mastery without evidence of performance.
+    const difficultyHistory = mastery.recent_history.slice(-10);
+    const difficultyWeight = difficultyHistory.reduce(
+      (sum, attempt) => sum + Math.max(1, Math.min(5, attempt.difficulty)),
+      0
+    );
+    const difficultyPerformance = difficultyWeight > 0
+      ? (
+          difficultyHistory.reduce(
+            (sum, attempt) =>
+              sum +
+              (attempt.correct ? Math.max(1, Math.min(5, attempt.difficulty)) : 0),
+            0
+          ) / difficultyWeight
+        ) * 100
+      : recentAccuracy;
 
     // 4. Consistency & Mistake Impact
     const volumeFactor = Math.min(1.0, mastery.questions_attempted / 4);
+    const consecutiveSignal =
+      mastery.consecutive_correct > 0
+        ? Math.min(100, 60 + mastery.consecutive_correct * 10)
+        : mastery.consecutive_incorrect > 0
+        ? Math.max(0, 50 - mastery.consecutive_incorrect * 15)
+        : 50;
     const mistakePenalty = Math.min(50, unresolvedMistakeCount * 15);
-    const consistencyScore = Math.max(0, 100 - mistakePenalty);
+    const consistencyScore = Math.max(0, consecutiveSignal - mistakePenalty);
 
     // Weighted composite formula:
     // Recent 40%, Overall 30%, Difficulty 20%, Consistency 10%
@@ -331,7 +354,9 @@ export class StudentLearningMemoryService {
     const existing = this.mistakes.find(
       (m) =>
         m.student_id === params.student_id &&
+        m.subject_id === params.subject_id &&
         m.chapter_id === params.chapter_id &&
+        m.topic.trim().toLowerCase() === params.topic.trim().toLowerCase() &&
         m.mistake_type === params.mistake_type &&
         !m.resolved
     );
@@ -528,9 +553,12 @@ export class StudentLearningMemoryService {
 
     // Recalculate multi-signal mastery score
     const unresolvedMistakes = this.getMistakesForStudent(params.student_id, {
+      subject_id: params.subject_id,
       chapter_id: params.chapter_id,
       resolved: false,
-    });
+    }).filter(
+      (m) => m.topic.trim().toLowerCase() === params.topic.trim().toLowerCase()
+    );
     const calculated = this.calculateMasteryScore(mastery, unresolvedMistakes.length);
     mastery.mastery_score = calculated.score;
     mastery.mastery_state = calculated.state;
