@@ -148,10 +148,15 @@ async function callGeminiWithCascade(params: {
       console.log(`[AI Tutor] Attempting generation with model: ${model}`);
       const config: any = {
         systemInstruction: params.systemInstruction,
-        // Athmik Tutor prioritizes fast interactive replies. Gemini 3.1 Flash-Lite
-        // supports minimal thinking, which is intended for low-latency chat.
+        // Athmik Tutor prioritizes fast interactive replies.
         thinkingConfig: { thinkingLevel: 'minimal' },
         maxOutputTokens: 800,
+        // Do not let transient 429/5xx retries turn a short tutor question
+        // into a long wait. The caller already has a model cascade/fallback.
+        httpOptions: {
+          timeout: 9000,
+          retryOptions: { attempts: 1 },
+        },
       };
 
       if (params.useStructuredOutput && !model.includes('gemma')) {
@@ -394,6 +399,7 @@ function generateCurriculumFallbackResponse(params: {
 
 // Primary Tutor Chat Endpoint
 app.post('/api/tutor/chat', async (req, res) => {
+  const requestStartedAt = Date.now();
   try {
     const {
       student,
@@ -416,6 +422,7 @@ app.post('/api/tutor/chat', async (req, res) => {
 
     const studentId = student.id;
     const authUser = (req as express.Request & { authUser?: AuthUser }).authUser;
+    const authStageStartedAt = Date.now();
     if (authRequired && supabaseDb && authUser) {
       const [allowed] = await Promise.all([
         userCanAccessStudent(supabaseDb, authUser.id, studentId),
@@ -425,6 +432,7 @@ app.post('/api/tutor/chat', async (req, res) => {
     } else {
       await supabaseMemorySync.hydrateStudent(studentId);
     }
+    console.log(`[TutorTiming] access+hydration=${Date.now() - authStageStartedAt}ms student=${studentId}`);
     if (durableMemoryRequired && !supabaseMemorySync.enabled) throw new Error('DURABLE_MEMORY_NOT_CONFIGURED');
     if (!checkTutorRateLimit(studentId)) {
       return res.status(429).json({ success: false, errorCode: 'RATE_LIMITED', error: 'Too many tutor requests. Please wait a moment and try again.' });
@@ -477,7 +485,10 @@ app.post('/api/tutor/chat', async (req, res) => {
       (!chapter?.id || !activeQuestion.chapter_id || activeQuestion.chapter_id === chapter.id)
     );
 
-    // Perform Hybrid Knowledge Base Retrieval (Class 5 CBSE prioritized)
+    // Perform Hybrid Knowledge Base Retrieval (Class 5 CBSE prioritized).
+    // This is intentionally cached server-side; the next major latency source
+    // after auth/memory is query embedding + vector search.
+    const ragStartedAt = Date.now();
     const ragSearchResult = await knowledgeBase.searchKnowledge({
       query: latestUserMessage,
       class: studentClass,
@@ -490,6 +501,7 @@ app.post('/api/tutor/chat', async (req, res) => {
       minScore: 0.35,
     });
 
+    console.log(`[TutorTiming] rag=${Date.now() - ragStartedAt}ms cachedOrRetrieved=${ragSearchResult.results.length}`);
     const hasRetrievedKnowledge = ragSearchResult.results.length > 0;
     let retrievedContextPrompt = '';
     if (hasRetrievedKnowledge) {
@@ -578,8 +590,11 @@ Respond with a JSON object:
   "usedSourceIds": ["exact source ID from context"]
 }`;
 
-    // Format conversation history
-    const conversationPrompt = messages
+    // Format only the latest turns for Gemini. Full history was growing after
+    // every question and increasing input size/latency. Durable learning memory
+    // already carries mastery, mistakes and question fingerprints.
+    const recentMessages = messages.slice(-8);
+    const conversationPrompt = recentMessages
       .map((m: { role: string; content: string }) => `${m.role === 'user' ? studentName : 'Tutor'}: ${m.content}`)
       .join('\n\n');
 
@@ -590,6 +605,7 @@ Respond with a JSON object:
     let parsedData: any = null;
     let modelUsed = 'gemini-3.1-flash-lite';
 
+    const generationStartedAt = Date.now();
     try {
       const { text, modelUsed: returnedModel } = await callGeminiWithCascade({
         contents: prompt,
@@ -598,6 +614,7 @@ Respond with a JSON object:
       });
       modelUsed = returnedModel;
       parsedData = parseTutorResponse(text);
+      console.log(`[TutorTiming] generation=${Date.now() - generationStartedAt}ms model=${modelUsed}`);
     } catch (aiErr: any) {
       console.warn('[AI Tutor] AI model generation cascade failed or rate limit reached:', aiErr?.message);
       parsedData = generateCurriculumFallbackResponse({
@@ -617,6 +634,7 @@ Respond with a JSON object:
         quizIndex,
       });
       modelUsed = 'curriculum-adaptive-engine';
+      console.log(`[TutorTiming] generation_failed_then_fallback=${Date.now() - generationStartedAt}ms`);
     }
 
     // Section 18 & 19: Post-Answer Evaluation with Deterministic Verification
@@ -668,7 +686,7 @@ Respond with a JSON object:
           const latestMistake = parsedData.evaluation.status === 'incorrect'
             ? studentLearningMemory.getMistakesForStudent(studentId, { chapter_id: chapter?.id, resolved: false })[0]
             : undefined;
-          await supabaseMemorySync.syncAttempt(studentId, {
+          supabaseMemorySync.queueAttempt(studentId, {
             client_attempt_id: activeQuestion?.id || undefined,
             student_id: studentId, subject_id: subject?.id || 'sub_maths', chapter_id: chapter?.id || 'chap_math_1',
             topic: currentTopic, question: lastAssistantMsg.content, student_answer: lastUserMsg.content,
@@ -678,10 +696,9 @@ Respond with a JSON object:
             concept_understood: parsedData.evaluation.conceptUnderstood,
           }, attemptResult.mastery, latestMistake, attemptResult.profile);
         } catch (syncError) {
-          console.error('[Data] Durable atomic attempt sync failed:', syncError);
-          if (durableMemoryRequired) {
-            return res.status(503).json({ success: false, errorCode: 'DURABLE_WRITE_FAILED', error: 'Learning data could not be durably saved. Please retry.' });
-          }
+          // queueAttempt is intentionally non-blocking; errors are logged by the
+          // per-student durable write queue without delaying the tutor reply.
+          console.error('[Data] Durable atomic attempt queue failed:', syncError);
         }
       }
 
@@ -707,25 +724,19 @@ Respond with a JSON object:
         question: parsedData.reply,
       });
       if (supabaseMemorySync.enabled) {
-        try {
-          await supabaseMemorySync.syncActiveQuestion(studentId, studentLearningMemory.getActiveQuestion(studentId));
-        } catch (syncError) {
-          // Do not turn a successful tutor response into a generic 500 because
-          // durable question persistence is temporarily unavailable.
-          console.error('[Data] Active-question persistence failed after tutor response:', syncError);
-        }
+        supabaseMemorySync.queueActiveQuestion(
+          studentId,
+          studentLearningMemory.getActiveQuestion(studentId)
+        );
       }
     } else if (isStudentAnswer) {
       studentLearningMemory.clearActiveQuestion(studentId, activeQuestion?.id);
       if (supabaseMemorySync.enabled) {
-        try {
-          await supabaseMemorySync.syncActiveQuestion(studentId, null);
-        } catch (syncError) {
-          console.error('[Data] Active-question cleanup failed after tutor response:', syncError);
-        }
+        supabaseMemorySync.queueActiveQuestion(studentId, null);
       }
     }
 
+    console.log(`[TutorTiming] total=${Date.now() - requestStartedAt}ms student=${studentId}`);
     res.json({
       success: true,
       modelUsed,
