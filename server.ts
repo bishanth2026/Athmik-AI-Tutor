@@ -715,6 +715,29 @@ Respond with a JSON object:
       }
     }
 
+    // Normalize the visible tutor reply to the verified evaluation.
+    // Gemini may return encouraging wording even when evaluation.status is
+    // incorrect/partially_correct. In quiz mode the student must see an explicit
+    // result, not a misleading encouraging message that sounds like a correct answer.
+    if (isStudentAnswer && parsedData.evaluation && parsedData.evaluation.status !== 'unclear') {
+      const status = parsedData.evaluation.status;
+      const feedback = typeof parsedData.evaluation.feedback === 'string'
+        ? parsedData.evaluation.feedback.trim()
+        : '';
+      if (status === 'incorrect') {
+        const correction = feedback || 'That answer is not correct. Let’s check the steps together.';
+        parsedData.reply = `Good attempt, ${studentName}! ${correction}`;
+        parsedData.evaluation.scoreDelta = 0;
+      } else if (status === 'partially_correct') {
+        const correction = feedback || 'You have part of the idea right. Let’s fix the remaining step together.';
+        parsedData.reply = `Good progress, ${studentName}! ${correction}`;
+        parsedData.evaluation.scoreDelta = Math.min(5, Number(parsedData.evaluation.scoreDelta) || 5);
+      } else if (status === 'correct') {
+        const confirmation = feedback || 'Your answer is correct!';
+        parsedData.reply = `Excellent, ${studentName}! ${confirmation}`;
+        parsedData.evaluation.scoreDelta = Math.max(10, Number(parsedData.evaluation.scoreDelta) || 10);
+      }
+    }
     // Persist exactly one active question per student so ordinary follow-up messages
     // are not accidentally scored as answers.
     let questionId: string | null = null;
