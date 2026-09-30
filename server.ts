@@ -99,6 +99,68 @@ async function requireStudentAccess(req: any, res: any, next: any) {
   }
 }
 
+
+// Secure short-lived token for the browser's Gemini Live API voice session.
+// The long-lived GEMINI_API_KEY never leaves the server.
+app.post('/api/ai-assistant/token', requireAuth, async (req, res) => {
+  try {
+    const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        success: false,
+        errorCode: 'GEMINI_API_KEY_MISSING',
+        error: 'Voice AI is not configured on the server.',
+      });
+    }
+
+    const now = Date.now();
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/auth_tokens', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        uses: 1,
+        expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
+        liveConnectConstraints: {
+          model: 'models/gemini-3.8-live',
+          config: {
+            responseModalities: ['AUDIO'],
+            sessionResumption: {},
+            contextWindowCompression: { slidingWindow: {} },
+          },
+        },
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data?.name) {
+      console.error('[AI Assistant] Ephemeral token provisioning failed:', data);
+      return res.status(502).json({
+        success: false,
+        errorCode: 'LIVE_TOKEN_FAILED',
+        error: 'Could not start the voice assistant session.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      token: data.name,
+      expiresAt: data.expireTime || null,
+      model: 'gemini-3.8-live',
+    });
+  } catch (error: any) {
+    console.error('[AI Assistant] Token endpoint error:', error);
+    return res.status(502).json({
+      success: false,
+      errorCode: 'LIVE_TOKEN_ERROR',
+      error: 'Could not start the voice assistant session.',
+    });
+  }
+});
+
 app.use('/api/tutor/chat', requireAuth);
 app.use('/api/tutor/hint', requireAuth);
 app.use('/api/knowledge', requireAuth);
