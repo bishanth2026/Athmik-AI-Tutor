@@ -7,6 +7,7 @@ import {
   User,
   Sparkles,
   ListOrdered,
+  Bot,
 } from 'lucide-react';
 
 interface MobileBottomNavProps {
@@ -29,7 +30,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ currentPath, o
     { label: 'Home', path: '/student', icon: LayoutDashboard },
     { label: 'Subjects', path: '/student/subjects', icon: BookOpen },
     { label: 'Progress', path: '/student/progress', icon: TrendingUp },
-    { label: 'AI Tutor', path: '/student/tutor', icon: Sparkles },
+    { label: 'AI Assistant', path: '/student/assistant', icon: Bot },
     { label: 'Profile', path: '/student/profile', icon: User },
   ];
 
