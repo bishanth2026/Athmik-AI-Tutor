@@ -746,23 +746,26 @@ export class StudentLearningMemoryService {
     const weakTopic = [...masteries]
       .filter((m) => m.questions_attempted > 0)
       .sort((a, b) => a.mastery_score - b.mastery_score)[0];
-    const target = unresolvedMistakes[0] || weakTopic;
+    const target: MistakeRecord | TopicMastery | undefined = unresolvedMistakes[0] ?? weakTopic;
     if (target) {
-      const meta = metadataFor(target.subject_id, target.chapter_id);
+      const targetRecord = target as MistakeRecord & Partial<TopicMastery>;
       const isMistake = 'mistake_type' in target;
+      const meta = metadataFor(targetRecord.subject_id, targetRecord.chapter_id);
       plan.push({
-        id: isMistake ? `plan_mistake_${target.id}` : `plan_weak_${target.id}`,
-        title: isMistake ? `Review ${target.mistake_type} Mistake: ${target.topic}` : `Practice Weak Topic: ${target.topic}`,
+        id: isMistake ? `plan_mistake_${targetRecord.id}` : `plan_weak_${targetRecord.id}`,
+        title: isMistake
+          ? `Review ${targetRecord.mistake_type} Mistake: ${targetRecord.topic}`
+          : `Practice Weak Topic: ${targetRecord.topic}`,
         type: isMistake ? 'review' : 'practice',
-        subject_id: target.subject_id,
+        subject_id: targetRecord.subject_id,
         subject_name: meta.subject_name,
-        chapter_id: target.chapter_id,
+        chapter_id: targetRecord.chapter_id,
         chapter_name: meta.chapter_name,
-        topic: target.topic,
+        topic: targetRecord.topic,
         estimated_minutes: isMistake ? 10 : 15,
         reason: isMistake
-          ? `Repeated difficulty with ${target.description}. Targeted review scheduled.`
-          : `Current mastery is ${target.mastery_score}% (${target.mastery_state}). Practice will strengthen understanding.`,
+          ? `Repeated difficulty with ${targetRecord.description}. Targeted review scheduled.`
+          : `Current mastery is ${targetRecord.mastery_score}% (${targetRecord.mastery_state}). Practice will strengthen understanding.`,
         completed: false,
       });
     }
