@@ -348,16 +348,13 @@ function generateCurriculumFallbackResponse(params: {
       };
     }
 
+    // Never invent a correctness result when the AI evaluator is unavailable.
+    // The previous fallback incorrectly treated every non-deterministic answer as
+    // correct, which could make a wrong quiz answer appear correct and inflate score.
     return {
-      reply: `Great thinking, ${studentName}! You are putting in good effort on **${currentTopic}**. Let's keep practising with another exciting problem from ${chapterName}: Floramma sells prawns for ₹150 for 1 kg. How much will 2 kg of prawns cost?`,
-      evaluation: {
-        status: 'correct',
-        feedback: 'Good effort and active participation!',
-        scoreDelta: 5,
-        conceptUnderstood: currentTopic,
-        mistake: null,
-      },
-      suggestedReplies: ['₹300', '₹250', 'Could you give a hint?'],
+      reply: `Good effort, ${studentName}! I want to check that answer carefully against the question before scoring it. Let's try the question once more, or ask me for a hint.`,
+      evaluation: undefined,
+      suggestedReplies: ['Try again', 'Give me a hint', 'Explain the question'],
       difficultyAdjustment: 0,
     };
   }
@@ -561,6 +558,12 @@ No official textbook material has been uploaded or retrieved for this specific c
 You may explain the topic using foundational Class 5 CBSE knowledge, or let Athmik know that his parent can add the chapter material to the Knowledge Base.
 Clearly distinguish between textbook-grounded information and general educational knowledge.
 `}
+
+CRITICAL ANSWER-EVALUATION RULES:
+1. When the latest student message is an answer to the tutor's previous question, evaluate that answer BEFORE writing encouragement. Compare it directly with the previous question and the chapter/context. Never assume an answer is correct merely because it is plausible or because the student tried hard.
+2. If the student's answer is wrong, set evaluation.status to "incorrect" and explain the correction gently. "Good effort" or similar encouragement must never be used as evidence that the answer is correct. If the exact correct answer cannot be established from the available context, use "unclear" rather than guessing.
+3. If the student's answer is correct, set evaluation.status to "correct". If only part is correct, use "partially_correct". Do not promote an incorrect answer to correct just to be encouraging.
+4. In QUIZ mode, an answer must receive "correct" only when the answer actually satisfies the question. Incorrect answers must be recorded as incorrect so the quiz score and mastery are not inflated.
 
 CRITICAL TEACHING RULES:
 1. Short Teaching Cycles: Never a long monologue. Max 2-4 sentences per response. Follow: Explain simply -> Give one real-life example -> Ask a check-in question -> Wait for student answer.
