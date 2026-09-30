@@ -1,0 +1,6 @@
+{
+  "name": "Athmik AI Tutor",
+  "description": "Personal AI Learning Assistant for Class 5 CBSE student and parent.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
