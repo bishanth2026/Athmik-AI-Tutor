@@ -92,6 +92,21 @@ export const AITutorAgentView: React.FC<AITutorAgentViewProps> = ({
   const [sessionStartTime] = useState<number>(() => Date.now());
   const [sessionQuestionsAttempted, setSessionQuestionsAttempted] = useState(0);
   const [sessionCorrectAnswers, setSessionCorrectAnswers] = useState(0);
+  const sessionMetricsRef = useRef({
+    questionsAttempted: 0,
+    correctAnswers: 0,
+    startingMastery: 0,
+    startingDifficulty: 2,
+  });
+  const latestSessionContextRef = useRef({
+    subjectId: '',
+    chapterId: '',
+    subjectName: '',
+    chapterName: '',
+    mode: 'learn' as TutorMode,
+    endingMastery: 0,
+    endingDifficulty: 2,
+  });
 
   // Learning Memory for the active chapter
   const [memory, setMemory] = useState<ChapterLearningMemory>(() => {
@@ -120,33 +135,54 @@ export const AITutorAgentView: React.FC<AITutorAgentViewProps> = ({
     };
   });
 
-  // Record session on component unmount if questions were attempted
+  // Keep session metrics in refs so React re-renders do not trigger
+  // duplicate session writes. Persist exactly once when the tutor view unmounts.
+  useEffect(() => {
+    if (selectedSubject && selectedChapter) {
+      latestSessionContextRef.current = {
+        subjectId: selectedSubject.id,
+        chapterId: selectedChapter.id,
+        subjectName: selectedSubject.name,
+        chapterName: selectedChapter.chapter_name,
+        mode,
+        endingMastery: memory.mastery_score,
+        endingDifficulty: memory.difficulty_level,
+      };
+      if (sessionMetricsRef.current.questionsAttempted === 0) {
+        sessionMetricsRef.current.startingMastery = memory.mastery_score;
+        sessionMetricsRef.current.startingDifficulty = memory.difficulty_level;
+      }
+    }
+  }, [selectedSubject, selectedChapter, mode, memory.mastery_score, memory.difficulty_level]);
+
   useEffect(() => {
     return () => {
-      const durationSeconds = Math.max(15, Math.round((Date.now() - sessionStartTime) / 1000));
-      if (selectedSubject && selectedChapter && sessionQuestionsAttempted > 0) {
-        learningMemoryService.recordCompletedSession({
+      const metrics = sessionMetricsRef.current;
+      const context = latestSessionContextRef.current;
+      const durationSeconds = Math.max(0, Math.round((Date.now() - sessionStartTime) / 1000));
+      if (context.subjectId && context.chapterId && metrics.questionsAttempted > 0) {
+        void learningMemoryService.recordCompletedSession({
           student_id: student.id,
-          subject_id: selectedSubject.id,
-          subject_name: selectedSubject.name,
-          chapter_id: selectedChapter.id,
-          chapter_name: selectedChapter.chapter_name,
-          topic: selectedChapter.chapter_name,
-          mode,
+          subject_id: context.subjectId,
+          subject_name: context.subjectName,
+          chapter_id: context.chapterId,
+          chapter_name: context.chapterName,
+          topic: context.chapterName,
+          mode: context.mode,
           started_at: new Date(sessionStartTime).toISOString(),
           ended_at: new Date().toISOString(),
           duration_seconds: durationSeconds,
-          questions_attempted: sessionQuestionsAttempted,
-          correct_answers: sessionCorrectAnswers,
-          incorrect_answers: Math.max(0, sessionQuestionsAttempted - sessionCorrectAnswers),
-          starting_mastery: memory.mastery_score,
-          ending_mastery: memory.mastery_score,
-          starting_difficulty: memory.difficulty_level,
-          ending_difficulty: memory.difficulty_level,
-        });
+          questions_attempted: metrics.questionsAttempted,
+          correct_answers: metrics.correctAnswers,
+          incorrect_answers: Math.max(0, metrics.questionsAttempted - metrics.correctAnswers),
+          starting_mastery: metrics.startingMastery,
+          ending_mastery: context.endingMastery,
+          starting_difficulty: metrics.startingDifficulty,
+          ending_difficulty: context.endingDifficulty,
+        }).catch((error) => console.error('[LearningSession] Save failed:', error));
       }
     };
-  }, [sessionStartTime, sessionQuestionsAttempted, sessionCorrectAnswers, selectedSubject, selectedChapter, mode, memory, student.id]);
+  }, [sessionStartTime, student.id]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -312,8 +348,10 @@ export const AITutorAgentView: React.FC<AITutorAgentViewProps> = ({
       // Update session metrics
       if (evaluation && evaluation.status !== 'unclear') {
         setSessionQuestionsAttempted((prev) => prev + 1);
+        sessionMetricsRef.current.questionsAttempted += 1;
         if (evaluation.status === 'correct') {
           setSessionCorrectAnswers((prev) => prev + 1);
+          sessionMetricsRef.current.correctAnswers += 1;
         }
       }
 
