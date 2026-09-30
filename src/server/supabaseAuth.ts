@@ -6,17 +6,12 @@ export interface AuthUser {
   role?: string;
 }
 
-/** Validates a Supabase access token server-side without exposing the service key. */
 export async function verifySupabaseAccessToken(accessToken: string): Promise<AuthUser | null> {
   const baseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!baseUrl || !serviceKey || !accessToken) return null;
-
   const response = await fetch(`${baseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: serviceKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: { apikey: serviceKey, Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) return null;
   const user = await response.json();
@@ -25,16 +20,12 @@ export async function verifySupabaseAccessToken(accessToken: string): Promise<Au
 }
 
 export async function userCanAccessStudent(db: SupabaseRestClient, userId: string, studentLegacyId: string): Promise<boolean> {
-  const rows = await db.select<any>(
-    'students',
-    `select=id,parent_id,auth_user_id&legacy_id=eq.${encodeURIComponent(studentLegacyId)}&limit=1`
-  ) as any[];
+  let rows = await db.select<any>('students', `select=id,parent_id,auth_user_id&legacy_id=eq.${encodeURIComponent(studentLegacyId)}&limit=1`) as any[];
+  if (!rows[0] && /^[0-9a-f-]{36}$/i.test(studentLegacyId)) {
+    rows = await db.select<any>('students', `select=id,parent_id,auth_user_id&id=eq.${encodeURIComponent(studentLegacyId)}&limit=1`) as any[];
+  }
   if (!rows[0]) return false;
   if (rows[0].auth_user_id === userId) return true;
-
-  const parents = await db.select<any>(
-    'parents',
-    `select=id,auth_user_id&auth_user_id=eq.${encodeURIComponent(userId)}&limit=1`
-  ) as any[];
+  const parents = await db.select<any>('parents', `select=id,auth_user_id&auth_user_id=eq.${encodeURIComponent(userId)}&limit=1`) as any[];
   return !!parents[0] && parents[0].id === rows[0].parent_id;
 }
