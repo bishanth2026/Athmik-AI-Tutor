@@ -672,7 +672,7 @@ Respond with a JSON object:
         } else {
           parsedData.evaluation.status = 'incorrect';
           parsedData.evaluation.scoreDelta = 0;
-          parsedData.evaluation.feedback = `Good attempt! The correct answer is ${detEval.expectedValue}. Let's look at that step together!`;
+          parsedData.evaluation.feedback = `Your answer ${lastUserMsg.content} is not correct. The correct answer is ${detEval.expectedValue}. Let's look at that step together!`;
           if (!parsedData.evaluation.mistake) {
             parsedData.evaluation.mistake = {
               type: 'calculation',
@@ -736,9 +736,9 @@ Respond with a JSON object:
         ? parsedData.evaluation.feedback.trim()
         : '';
       if (status === 'incorrect') {
-        const correction = feedback || 'That answer is not correct. Let’s check the steps together.';
+        const correction = feedback || 'Your answer is not correct. Let’s check the correct steps together.';
         const cleanCorrection = correction.replace(/^good attempt[!,.]?\s*/i, '');
-        parsedData.reply = `Good attempt, ${studentName}! ${cleanCorrection}`;
+        parsedData.reply = `Sorry, ${studentName}. Your answer is not correct. ${cleanCorrection.replace(/^your answer [^.]+\.\s*/i, '')}`;
         parsedData.evaluation.scoreDelta = 0;
       } else if (status === 'partially_correct') {
         const correction = feedback || 'You have part of the idea right. Let’s fix the remaining step together.';
