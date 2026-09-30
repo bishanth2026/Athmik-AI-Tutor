@@ -479,6 +479,10 @@ app.post('/api/tutor/chat', async (req, res) => {
       !!lastAssistantMsg.content &&
       activeQuestion &&
       activeQuestion.question === lastAssistantMsg.content &&
+      // A question from another subject/chapter must never be evaluated here.
+      // This prevents an old Math/Fish Tale question from being scored while
+      // the student is currently on Science, English, etc.
+      (!subject?.id || !activeQuestion.subject_id || activeQuestion.subject_id === subject.id) &&
       (!chapter?.id || !activeQuestion.chapter_id || activeQuestion.chapter_id === chapter.id)
     );
 
