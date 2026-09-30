@@ -20,6 +20,7 @@ import { ChapterOverviewView } from './views/student/ChapterOverviewView';
 import { StudentProgressView } from './views/student/StudentProgressView';
 import { StudentProfileReadOnlyView } from './views/student/StudentProfileReadOnlyView';
 import { AITutorFoundationView } from './views/student/AITutorFoundationView';
+import { AIAssistantView } from './views/student/AIAssistantView';
 
 function MainRouter() {
   const { role, setRole } = useApp();
@@ -76,6 +77,7 @@ function MainRouter() {
     if (currentPath === '/student/progress') return <StudentProgressView onNavigate={navigate} />;
     if (currentPath === '/student/profile') return <StudentProfileReadOnlyView onNavigate={navigate} />;
     if (currentPath === '/student/tutor' || currentPath.startsWith('/student/tutor')) return <AITutorFoundationView onNavigate={navigate} />;
+    if (currentPath === '/student/assistant' || currentPath.startsWith('/student/assistant')) return <AIAssistantView />;
     if (role === 'parent') return <ParentDashboardView onNavigate={navigate} />;
     return <StudentDashboardView onNavigate={navigate} />;
   };
