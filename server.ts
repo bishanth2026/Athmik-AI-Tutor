@@ -698,10 +698,24 @@ Respond with a JSON object:
         topic: currentTopic,
         question: parsedData.reply,
       });
-      if (supabaseMemorySync.enabled) await supabaseMemorySync.syncActiveQuestion(studentId, studentLearningMemory.getActiveQuestion(studentId));
+      if (supabaseMemorySync.enabled) {
+        try {
+          await supabaseMemorySync.syncActiveQuestion(studentId, studentLearningMemory.getActiveQuestion(studentId));
+        } catch (syncError) {
+          // Do not turn a successful tutor response into a generic 500 because
+          // durable question persistence is temporarily unavailable.
+          console.error('[Data] Active-question persistence failed after tutor response:', syncError);
+        }
+      }
     } else if (isStudentAnswer) {
       studentLearningMemory.clearActiveQuestion(studentId, activeQuestion?.id);
-      if (supabaseMemorySync.enabled) await supabaseMemorySync.syncActiveQuestion(studentId, null);
+      if (supabaseMemorySync.enabled) {
+        try {
+          await supabaseMemorySync.syncActiveQuestion(studentId, null);
+        } catch (syncError) {
+          console.error('[Data] Active-question cleanup failed after tutor response:', syncError);
+        }
+      }
     }
 
     res.json({
