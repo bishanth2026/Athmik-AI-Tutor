@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { AppShell } from './components/common/AppShell';
 import { AuthGate } from './components/common/AuthGate';
@@ -20,7 +20,7 @@ import { ChapterOverviewView } from './views/student/ChapterOverviewView';
 import { StudentProgressView } from './views/student/StudentProgressView';
 import { StudentProfileReadOnlyView } from './views/student/StudentProfileReadOnlyView';
 import { AITutorFoundationView } from './views/student/AITutorFoundationView';
-import { AIAssistantView } from './views/student/AIAssistantView';
+const AIAssistantView = lazy(() => import('./views/student/AIAssistantView').then((module) => ({ default: module.AIAssistantView })));
 
 function MainRouter() {
   const { role, setRole } = useApp();
@@ -77,7 +77,11 @@ function MainRouter() {
     if (currentPath === '/student/progress') return <StudentProgressView onNavigate={navigate} />;
     if (currentPath === '/student/profile') return <StudentProfileReadOnlyView onNavigate={navigate} />;
     if (currentPath === '/student/tutor' || currentPath.startsWith('/student/tutor')) return <AITutorFoundationView onNavigate={navigate} />;
-    if (currentPath === '/student/assistant' || currentPath.startsWith('/student/assistant')) return <AIAssistantView />;
+    if (currentPath === '/student/assistant' || currentPath.startsWith('/student/assistant')) return (
+      <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center text-sm text-slate-500">Loading AI Assistant…</div>}>
+        <AIAssistantView />
+      </Suspense>
+    );
     if (role === 'parent') return <ParentDashboardView onNavigate={navigate} />;
     return <StudentDashboardView onNavigate={navigate} />;
   };
