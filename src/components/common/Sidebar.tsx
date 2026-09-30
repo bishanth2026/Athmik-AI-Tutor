@@ -11,6 +11,7 @@ import {
   Award,
   ChevronRight,
   Database,
+  Bot,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPath, onNavigate }) => 
     { label: 'My Subjects', path: '/student/subjects', icon: BookOpen },
     { label: 'My Progress', path: '/student/progress', icon: TrendingUp },
     { label: 'AI Tutor Preview', path: '/student/tutor', icon: Sparkles },
+    { label: 'AI Assistant', path: '/student/assistant', icon: Bot },
     { label: 'My Profile', path: '/student/profile', icon: User },
   ];
 
