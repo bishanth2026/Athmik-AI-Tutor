@@ -148,6 +148,10 @@ async function callGeminiWithCascade(params: {
       console.log(`[AI Tutor] Attempting generation with model: ${model}`);
       const config: any = {
         systemInstruction: params.systemInstruction,
+        // Athmik Tutor prioritizes fast interactive replies. Gemini 3.1 Flash-Lite
+        // supports minimal thinking, which is intended for low-latency chat.
+        thinkingConfig: { thinkingLevel: 'minimal' },
+        maxOutputTokens: 800,
       };
 
       if (params.useStructuredOutput && !model.includes('gemma')) {
@@ -413,10 +417,14 @@ app.post('/api/tutor/chat', async (req, res) => {
     const studentId = student.id;
     const authUser = (req as express.Request & { authUser?: AuthUser }).authUser;
     if (authRequired && supabaseDb && authUser) {
-      const allowed = await userCanAccessStudent(supabaseDb, authUser.id, studentId);
+      const [allowed] = await Promise.all([
+        userCanAccessStudent(supabaseDb, authUser.id, studentId),
+        supabaseMemorySync.hydrateStudent(studentId),
+      ]);
       if (!allowed) return res.status(403).json({ success: false, errorCode: 'STUDENT_ACCESS_DENIED', error: 'You are not authorized to access this student.' });
+    } else {
+      await supabaseMemorySync.hydrateStudent(studentId);
     }
-    await supabaseMemorySync.hydrateStudent(studentId);
     if (durableMemoryRequired && !supabaseMemorySync.enabled) throw new Error('DURABLE_MEMORY_NOT_CONFIGURED');
     if (!checkTutorRateLimit(studentId)) {
       return res.status(429).json({ success: false, errorCode: 'RATE_LIMITED', error: 'Too many tutor requests. Please wait a moment and try again.' });
