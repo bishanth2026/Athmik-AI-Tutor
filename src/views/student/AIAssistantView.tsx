@@ -146,7 +146,7 @@ export const AIAssistantView: React.FC = () => {
 
     const samples = pcm16Base64ToFloat32(base64);
     const buffer = context.createBuffer(1, samples.length, 24000);
-    buffer.copyToChannel(samples, 0);
+    buffer.getChannelData(0).set(samples);
 
     const source = context.createBufferSource();
     source.buffer = buffer;
