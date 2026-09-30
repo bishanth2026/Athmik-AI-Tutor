@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../../context/AppContext';
-import { UserCheck, GraduationCap, ShieldCheck } from 'lucide-react';
+import { UserCheck, GraduationCap, ShieldCheck, Bot } from 'lucide-react';
 
 interface HeaderProps {
   currentPath: string;
@@ -117,6 +117,15 @@ export const Header: React.FC<HeaderProps> = ({ currentPath, onNavigate }) => {
                 }`}
               >
                 AI Tutor
+              </button>
+              <button
+                onClick={() => onNavigate('/student/assistant')}
+                className={`transition-colors cursor-pointer hover:text-slate-900 ${
+                  currentPath.startsWith('/student/assistant') ? 'text-indigo-600 font-semibold' : ''
+                }`}
+              >
+                <Bot className="inline w-3.5 h-3.5 mr-1.5" />
+                AI Assistant
               </button>
             </>
           )}
