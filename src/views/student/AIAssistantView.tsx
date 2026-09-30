@@ -174,7 +174,17 @@ export const AIAssistantView: React.FC = () => {
     setStatus('Connecting to AI voice...');
 
     try {
-      const tokenResponse = await apiFetch('/api/ai-assistant/token', { method: 'POST' });
+      const tokenController = new AbortController();
+      const tokenTimeout = setTimeout(() => tokenController.abort(), 12000);
+      let tokenResponse: Response;
+      try {
+        tokenResponse = await apiFetch('/api/ai-assistant/token', {
+          method: 'POST',
+          signal: tokenController.signal,
+        });
+      } finally {
+        clearTimeout(tokenTimeout);
+      }
       const tokenData = await tokenResponse.json();
       if (!tokenResponse.ok || !tokenData?.token) {
         throw new Error(tokenData?.error || 'Could not create a secure AI voice session.');
@@ -189,7 +199,18 @@ export const AIAssistantView: React.FC = () => {
       );
       socketRef.current = socket;
 
+      const socketTimeout = window.setTimeout(() => {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+          setError('Gemini Live connection timed out. Please try again.');
+          setStatus('Connection timed out');
+          setConnecting(false);
+          setConnected(false);
+        }
+      }, 15000);
+
       socket.onopen = () => {
+        window.clearTimeout(socketTimeout);
         socket.send(JSON.stringify({
           setup: {
             model: `models/${MODEL}`,
@@ -266,6 +287,7 @@ export const AIAssistantView: React.FC = () => {
       };
 
       socket.onclose = (event) => {
+        window.clearTimeout(socketTimeout);
         socketRef.current = null;
         cleanupMicrophone();
         stopPlayback();
@@ -279,8 +301,11 @@ export const AIAssistantView: React.FC = () => {
         }
       };
     } catch (err: any) {
-      setError(err?.message || 'Unable to connect to the AI Assistant.');
-      setStatus('Connection failed');
+      const message = err?.name === 'AbortError'
+        ? 'The AI Assistant connection timed out. Please try again.'
+        : (err?.message || 'Unable to connect to the AI Assistant.');
+      setError(message);
+      setStatus(err?.name === 'AbortError' ? 'Connection timed out' : 'Connection failed');
       setConnecting(false);
       setConnected(false);
     }
