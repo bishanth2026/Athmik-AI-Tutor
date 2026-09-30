@@ -411,8 +411,9 @@ app.post('/api/tutor/chat', async (req, res) => {
     }
 
     const studentId = student.id;
-    if (authRequired && supabaseDb && req.authUser) {
-      const allowed = await userCanAccessStudent(supabaseDb, req.authUser.id, studentId);
+    const authUser = (req as express.Request & { authUser?: AuthUser }).authUser;
+    if (authRequired && supabaseDb && authUser) {
+      const allowed = await userCanAccessStudent(supabaseDb, authUser.id, studentId);
       if (!allowed) return res.status(403).json({ success: false, errorCode: 'STUDENT_ACCESS_DENIED', error: 'You are not authorized to access this student.' });
     }
     await supabaseMemorySync.hydrateStudent(studentId);
