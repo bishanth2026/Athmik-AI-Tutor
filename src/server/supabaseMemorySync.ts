@@ -58,40 +58,6 @@ export class SupabaseMemorySync {
     };
   }
 
-  private async mapMasteries(rows: any[]) {
-    const result: any[] = [];
-    for (const row of rows) {
-      const [students, subjects, chapters] = await Promise.all([
-        this.db!.select<StudentRow>('students', `select=legacy_id&id=eq.${row.student_id}`) as Promise<StudentRow[]>,
-        this.db!.select<SubjectRow>('subjects', `select=legacy_id&id=eq.${row.subject_id}`) as Promise<SubjectRow[]>,
-        this.db!.select<ChapterRow>('chapters', `select=legacy_id&id=eq.${row.chapter_id}`) as Promise<ChapterRow[]>,
-      ]);
-      if (!students[0] || !chapters[0]) continue;
-      result.push({ ...row, id: row.legacy_id || row.id, student_id: students[0].legacy_id || students[0].id, subject_id: subjects[0]?.legacy_id || subjects[0]?.id, chapter_id: chapters[0].legacy_id || chapters[0].id });
-    }
-    return result;
-  }
-
-  private async mapMistakes(rows: any[]) {
-    const result: any[] = [];
-    for (const row of rows) {
-      const [students, subjects, chapters] = await Promise.all([
-        this.db!.select<StudentRow>('students', `select=legacy_id&id=eq.${row.student_id}`) as Promise<StudentRow[]>,
-        this.db!.select<SubjectRow>('subjects', `select=legacy_id&id=eq.${row.subject_id}`) as Promise<SubjectRow[]>,
-        this.db!.select<ChapterRow>('chapters', `select=legacy_id&id=eq.${row.chapter_id}`) as Promise<ChapterRow[]>,
-      ]);
-      if (!students[0] || !chapters[0]) continue;
-      result.push({ ...row, id: row.legacy_id || row.id, student_id: students[0].legacy_id || students[0].id, subject_id: subjects[0]?.legacy_id || subjects[0]?.id, chapter_id: chapters[0].legacy_id || chapters[0].id });
-    }
-    return result;
-  }
-
-  private async mapActiveQuestion(row: any, studentId: string) {
-    const subjects = await this.db!.select<SubjectRow>('subjects', `select=legacy_id&id=eq.${row.subject_id}`) as SubjectRow[];
-    const chapters = row.chapter_id ? await this.db!.select<ChapterRow>('chapters', `select=legacy_id&id=eq.${row.chapter_id}`) as ChapterRow[] : [];
-    return { id: row.legacy_id || row.id, student_id: studentId, subject_id: subjects[0]?.legacy_id || row.subject_id, chapter_id: chapters[0]?.legacy_id || row.chapter_id, topic: row.topic || '', question: row.question_text, created_at: row.created_at };
-  }
-
   async syncAttempt(studentId: string, attempt: any, mastery: any, mistake?: any, profile?: any): Promise<void> {
     if (!this.db) return;
     const payload = {
@@ -123,7 +89,7 @@ export class SupabaseMemorySync {
     };
     try {
       await this.db.rpc('record_learning_attempt_atomic', { payload });
-      this.invalidateHydration(studentId);
+      this.markHydrated(studentId);
     } catch (error) {
       console.error('[Supabase] Atomic attempt sync failed:', error);
       throw error;
@@ -142,7 +108,7 @@ export class SupabaseMemorySync {
       preferred_difficulty: profile.preferred_difficulty, daily_study_goal_minutes: profile.daily_study_goal_minutes,
       priority_subjects: profile.priority_subjects || [], updated_at: profile.updated_at,
     }, 'student_id');
-    this.invalidateHydration(studentId);
+    this.markHydrated(studentId);
   }
 
   async syncActiveQuestion(studentId: string, q: any | null): Promise<void> {
@@ -151,7 +117,7 @@ export class SupabaseMemorySync {
     if (!students[0]) return;
     if (!q) {
       await this.db.update('tutor_questions', `student_id=eq.${students[0].id}&answered_at=is.null`, { answered_at: new Date().toISOString() });
-      this.invalidateHydration(studentId);
+      this.markHydrated(studentId);
       return;
     }
     const subjects = await this.db.select<SubjectRow>('subjects', `select=id&legacy_id=eq.${encodeURIComponent(q.subject_id)}`) as SubjectRow[];
@@ -163,7 +129,7 @@ export class SupabaseMemorySync {
       chapter_id: chapters[0]?.id || null, topic: q.topic, question_text: q.question,
       difficulty_level: 2, answer_type: 'open_ended', grading_method: 'ai', created_at: q.created_at,
     }, 'legacy_id');
-    this.invalidateHydration(studentId);
+    this.markHydrated(studentId);
   }
   async syncSession(session: any): Promise<void> {
     if (!this.db) return;
