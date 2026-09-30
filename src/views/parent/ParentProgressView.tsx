@@ -62,6 +62,8 @@ export const ParentProgressView: React.FC = () => {
   }, [student.id]);
 
   const selectedSubject = activeSubjects.find((s) => s.id === selectedSubjectId) || activeSubjects[0];
+  const subjectNameById = new Map(activeSubjects.map((s) => [s.id, s.name]));
+  const chapterNameById = new Map(chapters.map((c) => [c.id, c.chapter_name]));
   const selectedSubjectChapters = chapters.filter(
     (c) => c.subject_id === selectedSubject?.id && c.active
   );
@@ -211,8 +213,10 @@ export const ParentProgressView: React.FC = () => {
                     {topicMasteries.map((m) => (
                       <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-3 px-4 font-semibold text-slate-800">
-                          <div>{m.subject_id === 'sub_maths' ? 'Mathematics' : 'Science (EVS)'}</div>
-                          <div className="text-[11px] text-slate-400 font-normal">Ch 1: The Fish Tale</div>
+                          <div>{subjectNameById.get(m.subject_id) || m.subject_id}</div>
+                          <div className="text-[11px] text-slate-400 font-normal">
+                            {chapterNameById.get(m.chapter_id) || m.chapter_id}
+                          </div>
                         </td>
                         <td className="py-3 px-4 font-bold text-slate-900">
                           {m.topic}
