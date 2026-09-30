@@ -407,7 +407,9 @@ export class KnowledgeBaseService {
       const value = {
         results,
         queryEmbeddingGenerated: true,
-        totalAvailableChunks: await this.remote.countAvailable({ subject_id: params.subject_id, chapter_id: params.chapter_id }),
+        // Count is diagnostic only and is not needed to generate the tutor reply.
+        // Avoid an extra Supabase round trip on every uncached question.
+        totalAvailableChunks: results.length,
         sources,
       };
       this.searchCache.set(cacheKey, { expiresAt: Date.now() + this.searchTtlMs, value });
