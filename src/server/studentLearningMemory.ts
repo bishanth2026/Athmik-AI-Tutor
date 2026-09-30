@@ -894,6 +894,13 @@ export class StudentLearningMemoryService {
     const qLower = question.toLowerCase();
     const aLower = studentAnswer.toLowerCase().trim();
 
+    // Deterministic checks are only for known Math/Fish Tale arithmetic patterns.
+    // Never apply them to another subject/chapter.
+    const fishTaleSignals = ['floramma', 'prawn', 'log boat', 'kingfish', 'motor boat', 'meenkar'];
+    if (!fishTaleSignals.some((signal) => qLower.includes(signal))) {
+      return { isDeterministic: false };
+    }
+
     // Pattern 1: Floramma sells prawns at ₹150 for 1 kg, buys 2 kg (150 * 2 = 300)
     if (qLower.includes('floramma') && qLower.includes('prawn') && (qLower.includes('2 kg') || qLower.includes('2kg'))) {
       const match = aLower.match(/\b300\b/);
