@@ -10,12 +10,22 @@ interface ChapterRow { id: string; legacy_id?: string; subject_id: string; }
  * the existing in-process service remains a local calculation/cache layer.
  */
 export class SupabaseMemorySync {
+  private readonly hydrationCache = new Map<string, number>();
+  private readonly hydrationTtlMs = 30_000;
+
   constructor(private readonly db: SupabaseRestClient | null, private readonly local: StudentLearningMemoryService) {}
 
   get enabled() { return !!this.db; }
 
+  private invalidateHydration(studentId: string) {
+    this.hydrationCache.delete(studentId);
+  }
+
   async hydrateStudent(studentId: string): Promise<void> {
     if (!this.db) return;
+    const now = Date.now();
+    const cachedAt = this.hydrationCache.get(studentId);
+    if (cachedAt && now - cachedAt < this.hydrationTtlMs) return;
     try {
       const students = await this.db.select<StudentRow>('students', `select=id,legacy_id,parent_id,name&legacy_id=eq.${encodeURIComponent(studentId)}`) as StudentRow[];
       if (!students.length) return;
@@ -33,6 +43,7 @@ export class SupabaseMemorySync {
         mistakes: await this.mapMistakes(mistakes),
         activeQuestion: activeQuestions[0] ? await this.mapActiveQuestion(activeQuestions[0], studentId) : null,
       });
+      this.hydrationCache.set(studentId, Date.now());
     } catch (error) {
       console.warn('[Supabase] Hydration failed; retaining local cache:', error);
     }
@@ -112,6 +123,7 @@ export class SupabaseMemorySync {
     };
     try {
       await this.db.rpc('record_learning_attempt_atomic', { payload });
+      this.invalidateHydration(studentId);
     } catch (error) {
       console.error('[Supabase] Atomic attempt sync failed:', error);
       throw error;
@@ -130,6 +142,7 @@ export class SupabaseMemorySync {
       preferred_difficulty: profile.preferred_difficulty, daily_study_goal_minutes: profile.daily_study_goal_minutes,
       priority_subjects: profile.priority_subjects || [], updated_at: profile.updated_at,
     }, 'student_id');
+    this.invalidateHydration(studentId);
   }
 
   async syncActiveQuestion(studentId: string, q: any | null): Promise<void> {
@@ -138,6 +151,7 @@ export class SupabaseMemorySync {
     if (!students[0]) return;
     if (!q) {
       await this.db.update('tutor_questions', `student_id=eq.${students[0].id}&answered_at=is.null`, { answered_at: new Date().toISOString() });
+      this.invalidateHydration(studentId);
       return;
     }
     const subjects = await this.db.select<SubjectRow>('subjects', `select=id&legacy_id=eq.${encodeURIComponent(q.subject_id)}`) as SubjectRow[];
@@ -149,6 +163,7 @@ export class SupabaseMemorySync {
       chapter_id: chapters[0]?.id || null, topic: q.topic, question_text: q.question,
       difficulty_level: 2, answer_type: 'open_ended', grading_method: 'ai', created_at: q.created_at,
     }, 'legacy_id');
+    this.invalidateHydration(studentId);
   }
   async syncSession(session: any): Promise<void> {
     if (!this.db) return;
