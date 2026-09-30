@@ -352,6 +352,7 @@ export class KnowledgeBaseService {
     const queryEmbedding = await this.generateEmbedding(params.query);
 
     if (this.remote && queryEmbedding) {
+      try {
       const vectorResults = await this.remote.vectorSearch({
         queryEmbedding,
         limit: Math.max(limit * 3, 15),
@@ -385,6 +386,9 @@ export class KnowledgeBaseService {
         totalAvailableChunks: await this.remote.countAvailable({ subject_id: params.subject_id, chapter_id: params.chapter_id }),
         sources,
       };
+      } catch (remoteError) {
+        console.warn('[KnowledgeBase] Remote vector search failed; falling back to local lexical retrieval:', remoteError);
+      }
     }
 
     // 2. Extract query keywords
