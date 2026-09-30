@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: athmik-ai-tutor
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        value: https://qyhictwyugxpqbzvcjfs.supabase.co
+      - key: VITE_SUPABASE_URL
+        value: https://qyhictwyugxpqbzvcjfs.supabase.co
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_AUTH_REQUIRED
+        value: "true"
+      - key: SUPABASE_DURABLE_MEMORY_REQUIRED
+        value: "true"
+      - key: KNOWLEDGE_ADMIN_USER_IDS
+        sync: false
