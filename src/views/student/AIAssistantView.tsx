@@ -89,6 +89,9 @@ export const AIAssistantView: React.FC = () => {
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const nextAudioTimeRef = useRef(0);
   const playbackSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  // Serialize incoming PCM chunks so async AudioContext.resume() cannot reorder them.
+  const audioQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const audioPlaybackGenerationRef = useRef(0);
   const assistantDraftRef = useRef('');
   const sessionHandleRef = useRef<string | null>(null);
 
@@ -99,6 +102,8 @@ export const AIAssistantView: React.FC = () => {
   }, [messages, student.id]);
 
   const stopPlayback = useCallback(() => {
+    // Invalidate queued chunks as well as audio that is already playing.
+    audioPlaybackGenerationRef.current += 1;
     playbackSourcesRef.current.forEach((source) => {
       try { source.stop(); } catch {}
       try { source.disconnect(); } catch {}
@@ -138,33 +143,44 @@ export const AIAssistantView: React.FC = () => {
     ]);
   }, []);
 
-  const queueAudio = useCallback(async (base64: string) => {
-    if (muted) return;
-    const context = audioContextRef.current;
-    if (!context) return;
-    if (context.state === 'suspended') await context.resume();
+  const queueAudio = useCallback((base64: string) => {
+    const generation = audioPlaybackGenerationRef.current;
+    // Keep every received audio chunk in arrival order, including on iOS where
+    // resuming AudioContext may be asynchronous.
+    audioQueueRef.current = audioQueueRef.current.then(async () => {
+      if (muted || generation !== audioPlaybackGenerationRef.current) return;
+      const context = audioContextRef.current;
+      if (!context) return;
+      if (context.state === 'suspended') await context.resume();
+      if (muted || generation !== audioPlaybackGenerationRef.current) return;
 
-    const samples = pcm16Base64ToFloat32(base64);
-    const buffer = context.createBuffer(1, samples.length, 24000);
-    buffer.getChannelData(0).set(samples);
+      const samples = pcm16Base64ToFloat32(base64);
+      if (!samples.length) return;
+      const buffer = context.createBuffer(1, samples.length, 24000);
+      buffer.getChannelData(0).set(samples);
 
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.connect(context.destination);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
 
-    const now = context.currentTime;
-    const startAt = Math.max(now + 0.01, nextAudioTimeRef.current || now + 0.01);
-    nextAudioTimeRef.current = startAt + buffer.duration;
-    setSpeaking(true);
+      const now = context.currentTime;
+      const startAt = Math.max(now + 0.01, nextAudioTimeRef.current || now + 0.01);
+      nextAudioTimeRef.current = startAt + buffer.duration;
+      setSpeaking(true);
 
-    source.onended = () => {
-      playbackSourcesRef.current = playbackSourcesRef.current.filter((item) => item !== source);
-      if (playbackSourcesRef.current.length === 0 && context.currentTime >= nextAudioTimeRef.current - 0.03) {
-        setSpeaking(false);
-      }
-    };
-    playbackSourcesRef.current.push(source);
-    source.start(startAt);
+      source.onended = () => {
+        playbackSourcesRef.current = playbackSourcesRef.current.filter((item) => item !== source);
+        if (playbackSourcesRef.current.length === 0 && context.currentTime >= nextAudioTimeRef.current - 0.03) {
+          setSpeaking(false);
+        }
+      };
+      playbackSourcesRef.current.push(source);
+      source.start(startAt);
+    }).catch((error) => {
+      // Recover the queue after a bad chunk so later chunks can still play.
+      console.warn('[AI Assistant] Audio chunk playback failed:', error);
+    });
+    return audioQueueRef.current;
   }, [muted]);
 
   const connect = useCallback(async () => {
